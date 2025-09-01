@@ -43,3 +43,36 @@ python -m git_mirror.cli gitolite-sync --base-dir /srv/git \
   --admin-url git@yourhost:gitolite-admin \
   --admin-dir /home/git/gitolite-admin
 ```
+
+## System integration
+
+Example systemd units are provided in `examples/systemd`.
+Install and enable them with:
+
+```bash
+sudo cp examples/systemd/git-mirror.service /etc/systemd/system/
+sudo cp examples/systemd/git-mirror.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now git-mirror.timer
+```
+
+## Gitolite configuration
+
+Sample Gitolite configuration files live in `examples/gitolite`.
+`gitolite.conf` must include `mirrors.conf`, and each mirror should
+have a read-only stanza:
+
+```conf
+repo mirrors/github.com/psf/requests.git
+    R   = @all
+    RW+ =
+```
+
+Install Gitolite on Debian/Ubuntu systems with:
+
+```bash
+sudo apt install gitolite3
+```
+
+After mirroring repositories, run the sync command above to keep
+`mirrors.conf` in line with on-disk mirrors.
