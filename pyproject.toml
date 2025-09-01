@@ -5,5 +5,8 @@ description = "Utility to mirror Git repositories and integrate with Gitolite"
 readme = "README.md"
 requires-python = ">=3.8"
 
+[project.optional-dependencies]
+completion = ["argcomplete"]
+
 [project.scripts]
 git-mirror = "git_mirror.cli:main"

@@ -89,6 +89,20 @@ python -m git_mirror.cli status --base-dir /srv/git \
   --admin-dir /home/git/gitolite-admin
 ```
 
+### `completion`
+Generate a shell completion script for Bash or Zsh. Evaluate the output to enable
+tab completion in the current shell session.
+
+```
+python -m git_mirror.cli completion [--prog git-mirror]
+```
+Example:
+
+```bash
+eval "$(python -m git_mirror.cli completion)"
+```
+Requires `argcomplete` to be installed.
+
 ## System integration
 
 Example systemd units are provided in `examples/systemd`.

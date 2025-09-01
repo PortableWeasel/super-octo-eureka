@@ -8,6 +8,7 @@ Commands:
   list       [--base-dir /path]       List detected mirrors
   gitolite-add <url> ...              Add a mirror to gitolite config
   gitolite-sync [--base-dir ...]      Sync gitolite config with on-disk mirrors
+  completion [--prog name]            Output shell completion script
   config <key> [value]                Get or set configuration values
 
 Examples:
@@ -18,6 +19,7 @@ Examples:
 
 from __future__ import annotations
 import argparse
+import shlex
 from pathlib import Path
 
 from .core import ensure_mirror, fetch_all, iter_mirrored_repos, record_sync_time
@@ -167,6 +169,18 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_completion(args: argparse.Namespace) -> int:
+    try:
+        import argcomplete
+    except ModuleNotFoundError:  # pragma: no cover - dependency missing
+        raise SystemExit(
+            "argcomplete is required for shell completion. Install with 'pip install argcomplete'."
+        )
+    prog = shlex.split(args.prog)
+    print(argcomplete.shellcode(prog))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="git-mirror", description="Mirror-clone and update Git repositories in a GitHub-like layout.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -217,12 +231,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--base-dir", help="Root folder to read config from")
     p_config.set_defaults(func=cmd_config)
 
+    p_comp = sub.add_parser("completion", help="Print shell completion script")
+    p_comp.add_argument(
+        "--prog",
+        default="git-mirror",
+        help="Program name to generate completion for (default: git-mirror)",
+    )
+    p_comp.set_defaults(func=cmd_completion)
+
     return p
 
 
 def main() -> int:
     parser = _build_parser()
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)  # type: ignore[arg-type]
+    except Exception:
+        pass
     args = parser.parse_args()
+    if getattr(args, "cmd", None) == "completion":
+        return args.func(args)
     args = _apply_config(args)
     return args.func(args)
 
