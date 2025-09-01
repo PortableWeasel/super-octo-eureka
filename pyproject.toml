@@ -1,0 +1,9 @@
+[project]
+name = "git-mirror"
+version = "0.1.0"
+description = "Utility to mirror Git repositories and integrate with Gitolite"
+readme = "README.md"
+requires-python = ">=3.8"
+
+[project.scripts]
+git-mirror = "git_mirror.cli:main"
