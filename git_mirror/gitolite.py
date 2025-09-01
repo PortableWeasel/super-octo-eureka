@@ -26,10 +26,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import re
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 import os
 
-from .core import RepoID, parse_repo_id, iter_mirrored_repos
+from .core import RepoID, parse_repo_id, iter_mirrored_repos, read_sync_time
 
 
 def _run_git(args, cwd: Path) -> subprocess.CompletedProcess:
@@ -367,3 +367,36 @@ def sync_gitolite_from_disk(
         commit_and_push(admin_dir, "Sync mirrors.conf with on-disk mirrors")
 
     return added, pruned
+
+
+def status_report(
+    base_dir: Path,
+    admin_url: str,
+    admin_dir: Path,
+    *,
+    prefix: str = "mirrors",
+    mirrors_conf_file: str = "mirrors.conf",
+) -> Dict[str, Any]:
+    """Return a summary of mirror status versus gitolite configuration."""
+    ensure_admin_repo(admin_url, admin_dir)
+    ensure_include_of_mirrors_conf(admin_dir, include_file=mirrors_conf_file)
+
+    disk_paths: List[str] = []
+    bad_layout: List[str] = []
+    for repo in iter_mirrored_repos(base_dir):
+        try:
+            disk_paths.append(
+                gitolite_path_from_mirror_dir(base_dir, repo, prefix=prefix)
+            )
+        except Exception:
+            bad_layout.append(str(repo))
+
+    set_disk = set(disk_paths)
+    set_cfg = set(configured_mirror_paths(admin_dir, mirrors_conf_file))
+
+    return {
+        "bad_layout": sorted(bad_layout),
+        "missing_in_config": sorted(set_disk - set_cfg),
+        "missing_on_disk": sorted(set_cfg - set_disk),
+        "last_sync": read_sync_time(base_dir),
+    }

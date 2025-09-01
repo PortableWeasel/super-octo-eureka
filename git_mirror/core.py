@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional, Tuple, List
 from urllib.parse import urlparse
+from datetime import datetime
 
 SSH_SCHEME_RE = re.compile(r"""
     ^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[A-Za-z0-9._-]+):
@@ -188,3 +189,20 @@ def fetch_all(base_dir: Path) -> List[Tuple[Path, Optional[str]]]:
             err = e.stderr.strip() if e.stderr else str(e)
             results.append((repo, err))
     return results
+
+
+SYNC_MARKER = ".last_sync"
+
+
+def record_sync_time(base_dir: Path) -> None:
+    base_dir = base_dir.resolve()
+    base_dir.mkdir(parents=True, exist_ok=True)
+    marker = base_dir / SYNC_MARKER
+    marker.write_text(datetime.utcnow().isoformat() + "\n", encoding="utf-8")
+
+
+def read_sync_time(base_dir: Path) -> Optional[str]:
+    marker = base_dir / SYNC_MARKER
+    if marker.exists():
+        return marker.read_text(encoding="utf-8").strip()
+    return None

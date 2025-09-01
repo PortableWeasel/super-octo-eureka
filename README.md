@@ -8,27 +8,52 @@ Git repo mirroring command line utility.
 - Update all mirrored repositories with a single command.
 - Integrate with Gitolite by adding and syncing mirror entries in `gitolite-admin`.
 
-## Usage
+## Command line usage
 
-Run the commands via the module:
+Invoke the CLI via the module:
 
 ```bash
 python -m git_mirror.cli --help
 ```
 
-To mirror a repository:
+### `clone`
+Mirror-clone (or update) a single repository.
+
+```
+python -m git_mirror.cli clone <url> --base-dir <path>
+```
+Example:
 
 ```bash
 python -m git_mirror.cli clone https://github.com/psf/requests.git --base-dir /srv/git
 ```
 
-To update all mirrors:
+### `update-all`
+Fetch updates for every mirror under `--base-dir` and record the last sync time.
+
+```
+python -m git_mirror.cli update-all --base-dir <path>
+```
+Example:
 
 ```bash
 python -m git_mirror.cli update-all --base-dir /srv/git
 ```
 
-To add the mirror to Gitolite:
+### `list`
+List all detected mirror repositories.
+
+```
+python -m git_mirror.cli list --base-dir <path>
+```
+
+### `gitolite-add`
+Add or update a mirror entry in `gitolite-admin`.
+
+```
+python -m git_mirror.cli gitolite-add <url> --admin-url <ssh-url> --admin-dir <path> [--readers @all] [--prefix mirrors] [--conf-file mirrors.conf]
+```
+Example:
 
 ```bash
 python -m git_mirror.cli gitolite-add https://github.com/psf/requests.git \
@@ -36,10 +61,30 @@ python -m git_mirror.cli gitolite-add https://github.com/psf/requests.git \
   --admin-dir /home/git/gitolite-admin
 ```
 
-To ensure the Gitolite configuration matches on-disk mirrors:
+### `gitolite-sync`
+Ensure the Gitolite configuration matches on-disk mirrors. Pass `--prune` to remove stale entries.
+
+```
+python -m git_mirror.cli gitolite-sync --base-dir <path> --admin-url <ssh-url> --admin-dir <path> [--readers @all] [--prefix mirrors] [--conf-file mirrors.conf] [--prune]
+```
+Example:
 
 ```bash
 python -m git_mirror.cli gitolite-sync --base-dir /srv/git \
+  --admin-url git@yourhost:gitolite-admin \
+  --admin-dir /home/git/gitolite-admin
+```
+
+### `status`
+Report on the state of mirror folders and Gitolite configuration. Shows layout problems, mirrors missing from the config, config entries without a mirror, and the last recorded sync time.
+
+```
+python -m git_mirror.cli status --base-dir <path> --admin-url <ssh-url> --admin-dir <path> [--prefix mirrors] [--conf-file mirrors.conf]
+```
+Example:
+
+```bash
+python -m git_mirror.cli status --base-dir /srv/git \
   --admin-url git@yourhost:gitolite-admin \
   --admin-dir /home/git/gitolite-admin
 ```

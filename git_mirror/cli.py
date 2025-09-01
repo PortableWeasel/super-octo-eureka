@@ -18,8 +18,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .core import ensure_mirror, fetch_all, iter_mirrored_repos
-from .gitolite import add_url_to_gitolite, sync_gitolite_from_disk
+from .core import ensure_mirror, fetch_all, iter_mirrored_repos, record_sync_time
+from .gitolite import add_url_to_gitolite, sync_gitolite_from_disk, status_report
 
 
 def cmd_clone(args: argparse.Namespace) -> int:
@@ -36,6 +36,7 @@ def cmd_update_all(args: argparse.Namespace) -> int:
             print(f"[FAIL] {repo} :: {err}")
         else:
             print(f"[OK]   {repo}")
+    record_sync_time(Path(args.base_dir))
     return 1 if failed else 0
 
 
@@ -78,6 +79,30 @@ def cmd_gitolite_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    report = status_report(
+        base_dir=Path(args.base_dir),
+        admin_url=args.admin_url,
+        admin_dir=Path(args.admin_dir),
+        prefix=args.prefix,
+        mirrors_conf_file=args.conf_file,
+    )
+    print(f"Last sync: {report['last_sync'] or 'never'}")
+    for p in report["bad_layout"]:
+        print(f"[BAD LAYOUT] {p}")
+    for p in report["missing_in_config"]:
+        print(f"[UNCONFIGURED] {p}")
+    for p in report["missing_on_disk"]:
+        print(f"[MISSING] {p}")
+    if (
+        not report["bad_layout"]
+        and not report["missing_in_config"]
+        and not report["missing_on_disk"]
+    ):
+        print("[OK] mirrors and config in sync")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="git-mirror", description="Mirror-clone and update Git repositories in a GitHub-like layout.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -113,6 +138,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sync.add_argument("--conf-file", default="mirrors.conf", help="Included conf filename (default: mirrors.conf)")
     p_sync.add_argument("--prune", action="store_true", help="Remove config entries whose mirrors are gone on disk")
     p_sync.set_defaults(func=cmd_gitolite_sync)
+
+    p_status = sub.add_parser("status", help="Report mirrors vs gitolite config")
+    p_status.add_argument("--base-dir", required=True, help="Root folder of mirrors on disk")
+    p_status.add_argument("--admin-url", required=True, help="gitolite-admin repo URL (ssh)")
+    p_status.add_argument("--admin-dir", required=True, help="Local path to gitolite-admin checkout")
+    p_status.add_argument("--prefix", default="mirrors", help="Gitolite path prefix (default: mirrors)")
+    p_status.add_argument("--conf-file", default="mirrors.conf", help="Included conf filename (default: mirrors.conf)")
+    p_status.set_defaults(func=cmd_status)
 
     return p
 
