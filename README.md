@@ -7,6 +7,7 @@ Git repo mirroring command line utility.
 - Mirror-clone repositories into a GitHub-like directory tree using `git clone --mirror`.
 - Update all mirrored repositories with a single command.
 - Integrate with Gitolite by adding and syncing mirror entries in `gitolite-admin`.
+- Mirror submodule repositories recursively.
 
 ## Command line usage
 
@@ -17,15 +18,16 @@ python -m git_mirror.cli --help
 ```
 
 ### `clone`
-Mirror-clone (or update) a single repository.
+Mirror-clone (or update) a single repository. Pass `--with-submodules` to
+mirror any submodule repositories as well.
 
 ```
-python -m git_mirror.cli clone <url> --base-dir <path>
+python -m git_mirror.cli clone <url> --base-dir <path> [--with-submodules]
 ```
 Example:
 
 ```bash
-python -m git_mirror.cli clone https://github.com/psf/requests.git --base-dir /srv/git
+python -m git_mirror.cli clone https://github.com/psf/requests.git --base-dir /srv/git --with-submodules
 ```
 
 ### `update-all`
@@ -45,6 +47,18 @@ List all detected mirror repositories.
 
 ```
 python -m git_mirror.cli list --base-dir <path>
+```
+
+### `mirror-submodules`
+Mirror any submodule repositories referenced by existing mirrors.
+
+```
+python -m git_mirror.cli mirror-submodules --base-dir <path>
+```
+Example:
+
+```bash
+python -m git_mirror.cli mirror-submodules --base-dir /srv/git
 ```
 
 ### `gitolite-add`

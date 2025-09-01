@@ -3,9 +3,12 @@
 CLI for git_mirror.
 
 Commands:
-  clone  <url> [--base-dir /path]     Mirror-clone (or update) a single repo
+  clone  <url> [--base-dir /path] [--with-submodules]
+                                       Mirror-clone (or update) a single repo
   update-all [--base-dir /path]       Fetch all mirrors under base-dir
   list       [--base-dir /path]       List detected mirrors
+  mirror-submodules [--base-dir /path]
+                                       Mirror submodule repositories for all mirrors
   gitolite-add <url> ...              Add a mirror to gitolite config
   gitolite-sync [--base-dir ...]      Sync gitolite config with on-disk mirrors
   completion [--prog name]            Output shell completion script
@@ -14,6 +17,7 @@ Commands:
 Examples:
   git-mirror clone https://github.com/psf/requests.git --base-dir /srv/git
   git-mirror update-all --base-dir /srv/git
+  git-mirror mirror-submodules --base-dir /srv/git
   git-mirror config admin-url git@host:gitolite-admin
 """
 
@@ -25,6 +29,7 @@ from pathlib import Path
 from .core import ensure_mirror, fetch_all, iter_mirrored_repos, record_sync_time
 from .gitolite import add_url_to_gitolite, sync_gitolite_from_disk, status_report
 from .config import find_base_dir, load_config, get_value, set_value
+from .submodules import mirror_submodules
 
 
 def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
@@ -60,6 +65,7 @@ def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
         "clone": ["base_dir"],
         "update-all": ["base_dir"],
         "list": ["base_dir"],
+        "mirror-submodules": ["base_dir"],
         "gitolite-add": ["admin_url", "admin_dir"],
         "gitolite-sync": ["base_dir", "admin_url", "admin_dir"],
         "status": ["base_dir", "admin_url", "admin_dir"],
@@ -77,6 +83,9 @@ def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
 def cmd_clone(args: argparse.Namespace) -> int:
     target = ensure_mirror(args.url, Path(args.base_dir))
     print(str(target))
+    if getattr(args, "with_submodules", False):
+        for sub in mirror_submodules(target, Path(args.base_dir)):
+            print(str(sub))
     return 0
 
 
@@ -96,6 +105,14 @@ def cmd_list(args: argparse.Namespace) -> int:
     base = Path(args.base_dir)
     for repo in iter_mirrored_repos(base):
         print(str(repo))
+    return 0
+
+
+def cmd_mirror_submodules(args: argparse.Namespace) -> int:
+    base = Path(args.base_dir)
+    for repo in iter_mirrored_repos(base):
+        for sub in mirror_submodules(repo, base):
+            print(str(sub))
     return 0
 
 
@@ -188,6 +205,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_clone = sub.add_parser("clone", help="Mirror-clone or update a single URL")
     p_clone.add_argument("url", help="Git URL (ssh or https)")
     p_clone.add_argument("--base-dir", help="Base directory for mirrors")
+    p_clone.add_argument(
+        "--with-submodules",
+        action="store_true",
+        help="Also mirror submodule repositories",
+    )
     p_clone.set_defaults(func=cmd_clone)
 
     p_update = sub.add_parser("update-all", help="Fetch updates for all mirrors")
@@ -197,6 +219,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="List detected mirror repositories")
     p_list.add_argument("--base-dir", help="Base directory for mirrors")
     p_list.set_defaults(func=cmd_list)
+
+    p_submods = sub.add_parser(
+        "mirror-submodules", help="Mirror submodules for existing mirrors"
+    )
+    p_submods.add_argument("--base-dir", help="Base directory for mirrors")
+    p_submods.set_defaults(func=cmd_mirror_submodules)
 
     p_gitolite = sub.add_parser("gitolite-add", help="Add a mirror repo ACL to gitolite-admin")
     p_gitolite.add_argument("url", help="Upstream Git URL (ssh or https)")
