@@ -5,6 +5,8 @@ from .core import (
     iter_mirrored_repos,
     fetch_mirror,
     fetch_all,
+    record_sync_time,
+    read_sync_time,
 )
 
 from .gitolite import (
@@ -18,4 +20,5 @@ from .gitolite import (
     configured_mirror_paths,
     gitolite_path_from_mirror_dir,
     sync_gitolite_from_disk,
+    status_report,
 )
