@@ -1,0 +1,13 @@
+[Unit]
+Description=Mirror and sync Gitolite ACLs for upstream mirrors
+
+[Service]
+Type=oneshot
+User=git
+Group=git
+WorkingDirectory=/home/git
+ExecStart=/usr/bin/env python3 -m git_mirror.cli update-all --base-dir /home/git/repositories/mirrors
+ExecStart=/usr/bin/env python3 -m git_mirror.cli gitolite-sync --base-dir /home/git/repositories/mirrors --admin-url git@yourhost:gitolite-admin --admin-dir /home/git/gitolite-admin --readers @all --prefix mirrors --conf-file mirrors.conf
+
+[Install]
+WantedBy=multi-user.target
