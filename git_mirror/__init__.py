@@ -22,3 +22,8 @@ from .gitolite import (
     sync_gitolite_from_disk,
     status_report,
 )
+
+from .submodules import (
+    submodule_urls,
+    mirror_submodules,
+)
