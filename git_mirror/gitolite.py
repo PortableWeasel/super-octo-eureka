@@ -98,9 +98,9 @@ def ensure_include_of_mirrors_conf(admin_dir: Path, include_file: str = "mirrors
 def gitolite_path_for(rid: RepoID, prefix: str = "mirrors") -> str:
     """
     Build the Gitolite-visible path for a mirror (matches on-disk layout).
-    Example: mirrors/github.com/psf/requests.git
+    Example: mirrors/github.com/psf/requests.git or mirrors/gitlab.com/group/sub/repo.git
     """
-    return f"{prefix}/{rid.host}/{rid.owner}/{rid.name}.git"
+    return f"{prefix}/{rid.host}/{'/'.join(rid.path)}.git"
 
 
 @dataclass

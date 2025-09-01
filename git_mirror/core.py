@@ -3,17 +3,15 @@
 Core utilities for mirroring Git repositories into a GitHub-like folder layout.
 
 Layout:
-  <base_dir>/<host>/<owner_or_org>/<repo>.git
+  <base_dir>/<host>/<path>.git
 
 Examples:
   https://github.com/numpy/numpy.git  -> base/github.com/numpy/numpy.git
   git@github.com:torvalds/linux.git   -> base/github.com/torvalds/linux.git
-  https://gitlab.com/group/sub/repo   -> base/gitlab.com/group/repo.git
+  https://gitlab.com/group/sub/repo   -> base/gitlab.com/group/sub/repo.git
 
 Notes:
-- For multi-segment namespaces (e.g. GitLab subgroups), we keep only the first
-  segment as the "owner" and the final segment as the repo, to match the
-  requested "user-or-org/repo" pattern.
+- All path segments after the host are preserved.
 - Clones use `--mirror`. Existing mirrors are updated with `git remote update --prune`.
 """
 
@@ -36,11 +34,19 @@ SSH_SCHEME_RE = re.compile(r"""
 @dataclass(frozen=True)
 class RepoID:
     host: str
-    owner: str
-    name: str  # repo name without trailing .git
+    path: Tuple[str, ...]  # path components after the host, repo name last
+
+    @property
+    def owner(self) -> str:
+        return self.path[0] if self.path else ""
+
+    @property
+    def name(self) -> str:
+        return self.path[-1] if self.path else ""
 
     def mirror_dir(self, base_dir: Path) -> Path:
-        return base_dir / self.host / self.owner / f"{self.name}.git"
+        """Return the on-disk path for this repository under ``base_dir``."""
+        return base_dir.joinpath(self.host, *self.path[:-1], f"{self.path[-1]}.git")
 
 
 def _strip_git_suffix(repo: str) -> str:
@@ -48,47 +54,31 @@ def _strip_git_suffix(repo: str) -> str:
 
 
 def _parse_ssh_like(url: str) -> Optional[Tuple[str, str]]:
-    """
-    Parse git@host:owner/repo(.git)? into (host, path)
-    """
+    """Parse ``git@host:path`` style URLs into ``(host, path)``."""
     m = SSH_SCHEME_RE.match(url)
     if not m:
         return None
     return m.group("host"), m.group("path")
 
 
-def _split_owner_and_repo(path: str) -> Tuple[str, str]:
-    """
-    Convert a path like:
-      owner/repo
-      owner/sub/repo
-      /owner/repo.git
-    into ("owner", "repo") by taking the first and last components.
-    """
+def _split_path(path: str) -> Tuple[str, ...]:
+    """Split a repository path into components and drop any trailing ``.git``."""
     parts = [p for p in Path(path).parts if p not in ("/", "")]
-
-    # Drop common VCS prefixes if someone passes paths like "scm/repo"
-    # but we keep this minimal; the primary rule is first and last segment.
-    if len(parts) == 0:
-        raise ValueError(f"Cannot parse owner/repo from empty path: {path}")
-
-    owner = parts[0]
-    repo = _strip_git_suffix(parts[-1])
-    if repo in ("", ".", ".."):
+    if not parts:
+        raise ValueError(f"Cannot parse path from empty string: {path}")
+    parts[-1] = _strip_git_suffix(parts[-1])
+    if parts[-1] in ("", ".", ".."):
         raise ValueError(f"Suspicious repo segment parsed from path: {path}")
-    return owner, repo
+    return tuple(parts)
 
 
 def parse_repo_id(url: str) -> RepoID:
-    """
-    Parse a Git URL (ssh-like or http(s)) into RepoID(host, owner, name).
-    """
-    # SSH style: git@host:owner/repo(.git)
+    """Parse a Git URL (SSH/HTTP/etc.) into ``RepoID(host, path)``."""
+    # SSH style: git@host:path
     ssh = _parse_ssh_like(url)
     if ssh is not None:
         host, path = ssh
-        owner, repo = _split_owner_and_repo(path)
-        return RepoID(host=host, owner=owner, name=repo)
+        return RepoID(host=host, path=_split_path(path))
 
     # HTTP(S) style
     parsed = urlparse(url)
@@ -97,8 +87,7 @@ def parse_repo_id(url: str) -> RepoID:
         if not host:
             raise ValueError(f"Missing host in URL: {url}")
         # parsed.path starts with '/', remove it for clean splitting
-        owner, repo = _split_owner_and_repo(parsed.path.lstrip("/"))
-        return RepoID(host=host, owner=owner, name=repo)
+        return RepoID(host=host, path=_split_path(parsed.path.lstrip("/")))
 
     # Local path fallback (less common for your use case, but harmless)
     if os.path.exists(url):
@@ -107,7 +96,7 @@ def parse_repo_id(url: str) -> RepoID:
         if p.is_dir() and p.name.endswith(".git"):
             repo = _strip_git_suffix(p.name)
             owner = p.parent.name or "_local"
-            return RepoID(host="_local", owner=owner, name=repo)
+            return RepoID(host="_local", path=(owner, repo))
         raise ValueError(f"Local path provided is not a mirror dir: {url}")
 
     raise ValueError(f"Unsupported URL format: {url}")
@@ -126,9 +115,9 @@ def _run(cmd: List[str], cwd: Optional[Path] = None, check: bool = True) -> subp
 
 def ensure_mirror(url: str, base_dir: Path) -> Path:
     """
-    Ensure a repository is mirror-cloned under base_dir in host/owner/repo.git.
-    If already present, do a remote update; if not, perform `git clone --mirror`.
-    Returns the path to the mirror directory.
+    Ensure a repository is mirror-cloned under ``base_dir`` in
+    ``host/<path>.git``. If already present, do a remote update; otherwise
+    perform ``git clone --mirror``. Returns the path to the mirror directory.
     """
     rid = parse_repo_id(url)
     target = rid.mirror_dir(base_dir)
