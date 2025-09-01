@@ -3,15 +3,17 @@
 CLI for git_mirror.
 
 Commands:
-  clone  <url> --base-dir /path      Mirror-clone (or update) a single repo
-  update-all --base-dir /path        Fetch all mirrors under base-dir
-  list       --base-dir /path        List detected mirrors
-  gitolite-add <url> ...             Add a mirror to gitolite config
-  gitolite-sync --base-dir ...       Sync gitolite config with on-disk mirrors
+  clone  <url> [--base-dir /path]     Mirror-clone (or update) a single repo
+  update-all [--base-dir /path]       Fetch all mirrors under base-dir
+  list       [--base-dir /path]       List detected mirrors
+  gitolite-add <url> ...              Add a mirror to gitolite config
+  gitolite-sync [--base-dir ...]      Sync gitolite config with on-disk mirrors
+  config <key> [value]                Get or set configuration values
 
 Examples:
   git-mirror clone https://github.com/psf/requests.git --base-dir /srv/git
   git-mirror update-all --base-dir /srv/git
+  git-mirror config admin-url git@host:gitolite-admin
 """
 
 from __future__ import annotations
@@ -20,6 +22,54 @@ from pathlib import Path
 
 from .core import ensure_mirror, fetch_all, iter_mirrored_repos, record_sync_time
 from .gitolite import add_url_to_gitolite, sync_gitolite_from_disk, status_report
+from .config import find_base_dir, load_config, get_value, set_value
+
+
+def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
+    """Populate missing arguments from configuration file."""
+    base = getattr(args, "base_dir", None)
+    if base is None:
+        found = find_base_dir()
+        if found is not None:
+            base = str(found)
+            args.base_dir = base
+    if base is None:
+        return args
+    cfg = load_config(Path(base))
+
+    def _maybe(attr: str, key: str) -> None:
+        if getattr(args, attr, None) is None and cfg.has_option("git-mirror", key):
+            setattr(args, attr, cfg.get("git-mirror", key))
+
+    _maybe("admin_url", "admin-url")
+    _maybe("admin_dir", "admin-dir")
+    _maybe("prefix", "prefix")
+    _maybe("conf_file", "conf-file")
+    _maybe("readers", "readers")
+
+    if getattr(args, "readers", None) is None:
+        args.readers = "@all"
+    if getattr(args, "prefix", None) is None:
+        args.prefix = "mirrors"
+    if getattr(args, "conf_file", None) is None:
+        args.conf_file = "mirrors.conf"
+
+    required = {
+        "clone": ["base_dir"],
+        "update-all": ["base_dir"],
+        "list": ["base_dir"],
+        "gitolite-add": ["admin_url", "admin_dir"],
+        "gitolite-sync": ["base_dir", "admin_url", "admin_dir"],
+        "status": ["base_dir", "admin_url", "admin_dir"],
+    }.get(getattr(args, "cmd", ""), [])
+
+    missing = [r for r in required if getattr(args, r, None) is None]
+    if missing:
+        raise SystemExit(
+            "Missing required arguments: "
+            + ", ".join(f"--{m.replace('_', '-')}" for m in missing)
+        )
+    return args
 
 
 def cmd_clone(args: argparse.Namespace) -> int:
@@ -103,49 +153,69 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    base = Path(args.base_dir) if args.base_dir else find_base_dir()
+    if base is None:
+        raise SystemExit("Cannot determine base directory; specify --base-dir")
+    if args.value is None:
+        val = get_value(base, args.key)
+        if val is None:
+            return 1
+        print(val)
+    else:
+        set_value(base, args.key, args.value)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="git-mirror", description="Mirror-clone and update Git repositories in a GitHub-like layout.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_clone = sub.add_parser("clone", help="Mirror-clone or update a single URL")
     p_clone.add_argument("url", help="Git URL (ssh or https)")
-    p_clone.add_argument("--base-dir", required=True, help="Base directory for mirrors")
+    p_clone.add_argument("--base-dir", help="Base directory for mirrors")
     p_clone.set_defaults(func=cmd_clone)
 
     p_update = sub.add_parser("update-all", help="Fetch updates for all mirrors")
-    p_update.add_argument("--base-dir", required=True, help="Base directory for mirrors")
+    p_update.add_argument("--base-dir", help="Base directory for mirrors")
     p_update.set_defaults(func=cmd_update_all)
 
     p_list = sub.add_parser("list", help="List detected mirror repositories")
-    p_list.add_argument("--base-dir", required=True, help="Base directory for mirrors")
+    p_list.add_argument("--base-dir", help="Base directory for mirrors")
     p_list.set_defaults(func=cmd_list)
 
     p_gitolite = sub.add_parser("gitolite-add", help="Add a mirror repo ACL to gitolite-admin")
     p_gitolite.add_argument("url", help="Upstream Git URL (ssh or https)")
-    p_gitolite.add_argument("--admin-url", required=True, help="gitolite-admin repo URL (ssh)")
-    p_gitolite.add_argument("--admin-dir", required=True, help="Local path for gitolite-admin checkout")
-    p_gitolite.add_argument("--readers", default="@all", help="Readers group or user list (default: @all)")
-    p_gitolite.add_argument("--prefix", default="mirrors", help="Path prefix inside gitolite (default: mirrors)")
-    p_gitolite.add_argument("--conf-file", default="mirrors.conf", help="Included conf filename (default: mirrors.conf)")
+    p_gitolite.add_argument("--admin-url", help="gitolite-admin repo URL (ssh)")
+    p_gitolite.add_argument("--admin-dir", help="Local path for gitolite-admin checkout")
+    p_gitolite.add_argument("--readers", help="Readers group or user list (default: @all)")
+    p_gitolite.add_argument("--prefix", help="Path prefix inside gitolite (default: mirrors)")
+    p_gitolite.add_argument("--conf-file", help="Included conf filename (default: mirrors.conf)")
     p_gitolite.set_defaults(func=cmd_gitolite_add)
 
     p_sync = sub.add_parser("gitolite-sync", help="Ensure gitolite mirrors.conf matches on-disk mirrors")
-    p_sync.add_argument("--base-dir", required=True, help="Root folder of mirrors on disk (e.g., ~git/repositories/mirrors)")
-    p_sync.add_argument("--admin-url", required=True, help="gitolite-admin repo URL (ssh)")
-    p_sync.add_argument("--admin-dir", required=True, help="Local path to gitolite-admin checkout")
-    p_sync.add_argument("--readers", default="@all", help="Readers group or list to apply for new entries")
-    p_sync.add_argument("--prefix", default="mirrors", help="Gitolite path prefix (default: mirrors)")
-    p_sync.add_argument("--conf-file", default="mirrors.conf", help="Included conf filename (default: mirrors.conf)")
+    p_sync.add_argument("--base-dir", help="Root folder of mirrors on disk (e.g., ~git/repositories/mirrors)")
+    p_sync.add_argument("--admin-url", help="gitolite-admin repo URL (ssh)")
+    p_sync.add_argument("--admin-dir", help="Local path to gitolite-admin checkout")
+    p_sync.add_argument("--readers", help="Readers group or list to apply for new entries")
+    p_sync.add_argument("--prefix", help="Gitolite path prefix (default: mirrors)")
+    p_sync.add_argument("--conf-file", help="Included conf filename (default: mirrors.conf)")
     p_sync.add_argument("--prune", action="store_true", help="Remove config entries whose mirrors are gone on disk")
     p_sync.set_defaults(func=cmd_gitolite_sync)
 
     p_status = sub.add_parser("status", help="Report mirrors vs gitolite config")
-    p_status.add_argument("--base-dir", required=True, help="Root folder of mirrors on disk")
-    p_status.add_argument("--admin-url", required=True, help="gitolite-admin repo URL (ssh)")
-    p_status.add_argument("--admin-dir", required=True, help="Local path to gitolite-admin checkout")
-    p_status.add_argument("--prefix", default="mirrors", help="Gitolite path prefix (default: mirrors)")
-    p_status.add_argument("--conf-file", default="mirrors.conf", help="Included conf filename (default: mirrors.conf)")
+    p_status.add_argument("--base-dir", help="Root folder of mirrors on disk")
+    p_status.add_argument("--admin-url", help="gitolite-admin repo URL (ssh)")
+    p_status.add_argument("--admin-dir", help="Local path to gitolite-admin checkout")
+    p_status.add_argument("--prefix", help="Gitolite path prefix (default: mirrors)")
+    p_status.add_argument("--conf-file", help="Included conf filename (default: mirrors.conf)")
     p_status.set_defaults(func=cmd_status)
+
+    p_config = sub.add_parser("config", help="Get or set persistent options")
+    p_config.add_argument("key", help="Configuration key")
+    p_config.add_argument("value", nargs="?", help="Value to set for key")
+    p_config.add_argument("--base-dir", help="Root folder to read config from")
+    p_config.set_defaults(func=cmd_config)
 
     return p
 
@@ -153,6 +223,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
+    args = _apply_config(args)
     return args.func(args)
 
 
