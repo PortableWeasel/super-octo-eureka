@@ -28,14 +28,15 @@ from pathlib import Path
 
 from .core import ensure_mirror, fetch_all, iter_mirrored_repos, record_sync_time
 from .gitolite import add_url_to_gitolite, sync_gitolite_from_disk, status_report
-from .config import find_base_dir, load_config, get_value, set_value
+from .config import CONFIG_FILENAME, find_base_dir, load_config, get_value, set_value
 from .submodules import mirror_submodules
+from .systemd import register_user_service
 
 
 def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
     """Populate missing arguments from configuration file."""
     base = getattr(args, "base_dir", None)
-    if base is None:
+    if base is None and getattr(args, "cmd", "") != "register-service":
         found = find_base_dir()
         if found is not None:
             base = str(found)
@@ -68,7 +69,7 @@ def _apply_config(args: argparse.Namespace) -> argparse.Namespace:
         "mirror-submodules": ["base_dir"],
         "gitolite-add": ["admin_url", "admin_dir"],
         "gitolite-sync": ["base_dir", "admin_url", "admin_dir"],
-        "status": ["base_dir", "admin_url", "admin_dir"],
+        "status": ["base_dir"],
     }.get(getattr(args, "cmd", ""), [])
 
     missing = [r for r in required if getattr(args, r, None) is None]
@@ -151,24 +152,27 @@ def cmd_gitolite_sync(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     report = status_report(
         base_dir=Path(args.base_dir),
-        admin_url=args.admin_url,
-        admin_dir=Path(args.admin_dir),
+        admin_url=getattr(args, "admin_url", None),
+        admin_dir=Path(args.admin_dir) if getattr(args, "admin_dir", None) else None,
         prefix=args.prefix,
         mirrors_conf_file=args.conf_file,
     )
     print(f"Last sync: {report['last_sync'] or 'never'}")
     for p in report["bad_layout"]:
         print(f"[BAD LAYOUT] {p}")
-    for p in report["missing_in_config"]:
-        print(f"[UNCONFIGURED] {p}")
-    for p in report["missing_on_disk"]:
-        print(f"[MISSING] {p}")
-    if (
-        not report["bad_layout"]
-        and not report["missing_in_config"]
-        and not report["missing_on_disk"]
-    ):
-        print("[OK] mirrors and config in sync")
+    if report["missing_in_config"] is None or report["missing_on_disk"] is None:
+        print("Gitolite details not provided; skipping gitolite checks")
+    else:
+        for p in report["missing_in_config"]:
+            print(f"[UNCONFIGURED] {p}")
+        for p in report["missing_on_disk"]:
+            print(f"[MISSING] {p}")
+        if (
+            not report["bad_layout"]
+            and not report["missing_in_config"]
+            and not report["missing_on_disk"]
+        ):
+            print("[OK] mirrors and config in sync")
     return 0
 
 
@@ -195,6 +199,15 @@ def cmd_completion(args: argparse.Namespace) -> int:
         )
     prog = shlex.split(args.prog)
     print(argcomplete.shellcode(prog))
+    return 0
+
+
+def cmd_register_service(args: argparse.Namespace) -> int:
+    base = Path(args.base_dir) if getattr(args, "base_dir", None) else Path.cwd()
+    if getattr(args, "base_dir", None) is None and not (base / CONFIG_FILENAME).exists():
+        raise SystemExit("Cannot determine base directory; specify --base-dir")
+    svc, timer = register_user_service(base)
+    print(f"Installed {svc} and {timer}")
     return 0
 
 
@@ -252,6 +265,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_status.add_argument("--prefix", help="Gitolite path prefix (default: mirrors)")
     p_status.add_argument("--conf-file", help="Included conf filename (default: mirrors.conf)")
     p_status.set_defaults(func=cmd_status)
+
+    p_reg = sub.add_parser(
+        "register-service",
+        help="Install a user systemd service and timer for periodic sync",
+    )
+    p_reg.add_argument(
+        "--base-dir",
+        help="Base directory for mirrors (defaults to CWD if .git-mirror.conf present)",
+    )
+    p_reg.set_defaults(func=cmd_register_service)
 
     p_config = sub.add_parser("config", help="Get or set persistent options")
     p_config.add_argument("key", help="Configuration key")
