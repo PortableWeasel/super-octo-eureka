@@ -129,6 +129,14 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now git-mirror.timer
 ```
 
+To install a user-level systemd timer instead, run:
+
+```bash
+python -m git_mirror.cli register-service --base-dir /home/git/repositories/mirrors
+```
+
+If `--base-dir` is omitted, the current directory is used when it contains `.git-mirror.conf`.
+
 ## Gitolite configuration
 
 Sample Gitolite configuration files live in `examples/gitolite`.
